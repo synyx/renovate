@@ -11,7 +11,10 @@ import type {
 export class Vulnerabilities {
   private osvOffline: OsvOffline | undefined;
 
-  private static readonly managerEcosystemMap: Record<string, Ecosystem> = {
+  private static readonly managerEcosystemMap: Record<
+    string,
+    Ecosystem | undefined
+  > = {
     bundler: 'RubyGems',
     cargo: 'crates.io',
     gomod: 'Go',
@@ -90,23 +93,34 @@ export class Vulnerabilities {
       'fetchManagerPackagerFileUpdates starting with concurrency'
     );
 
-    config.packageRules.push(...(await pAll(queue, { concurrency: 5 })).flat());
+    config.packageRules?.push(
+      ...(await pAll(queue, { concurrency: 5 })).flat()
+    );
     logger.trace({ packageFile }, 'fetchManagerPackagerFileUpdates finished');
   }
 
   private async fetchDependencyVulnerabilities(
     packageFileConfig: RenovateConfig & PackageFile,
-    indep: PackageDependency
+    packageDependency: PackageDependency
   ): Promise<PackageRule[]> {
+    if (
+      packageFileConfig.manager === undefined ||
+      packageDependency.depName === undefined
+    ) {
+      return [];
+    }
     const ecosystem =
       Vulnerabilities.managerEcosystemMap[packageFileConfig.manager];
+    if (ecosystem === undefined) {
+      return [];
+    }
     const vulnerabilities = await this.osvOffline?.getVulnerabilities(
       ecosystem,
-      indep.depName
+      packageDependency.depName
     );
     return this.convertToPackageRule(
       vulnerabilities ?? [],
-      indep.depName,
+      packageDependency.depName,
       ecosystem
     );
   }
@@ -120,13 +134,13 @@ export class Vulnerabilities {
       .flatMap((vulnerability) => vulnerability.affected)
       .filter(
         (vulnerability) =>
-          vulnerability.package.name === dependencyName &&
-          vulnerability.package.ecosystem === ecosystem
+          vulnerability?.package?.name === dependencyName &&
+          vulnerability?.package?.ecosystem === ecosystem
       )
       .map(
         (affected): PackageRule => ({
           matchPackageNames: [dependencyName],
-          allowedVersions: affected.ranges[0].events.find(
+          allowedVersions: affected?.ranges?.[0].events.find(
             (event) => event.fixed !== undefined
           ).fixed,
           isVulnerabilityAlert: true,
